@@ -31,6 +31,34 @@ jobs:
           size=$(stat -c %s launcher/app/build/outputs/apk/release/app-release.apk)
           echo "release APK: $((size / 1024)) KB"
           test "$size" -lt 589824
+      - name: Decode pinned keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/cleanyourtv.p12"
+          test -s "$RUNNER_TEMP/cleanyourtv.p12"
+          echo "keystore bytes: $(stat -c %s "$RUNNER_TEMP/cleanyourtv.p12")"
+      - name: Re-sign APK with pinned key
+        env:
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          APK=launcher/app/build/outputs/apk/release/app-release.apk
+          BT="${ANDROID_HOME}/build-tools/34.0.0"
+          "$BT/apksigner" sign \
+            --ks "$RUNNER_TEMP/cleanyourtv.p12" \
+            --ks-type PKCS12 \
+            --ks-pass env:KS_PASS \
+            --ks-key-alias cleanyourtv \
+            --key-pass env:KS_PASS \
+            --out "$RUNNER_TEMP/signed.apk" \
+            "$APK"
+          mv "$RUNNER_TEMP/signed.apk" "$APK"
+      - name: Verify pinned signature
+        run: |
+          APK=launcher/app/build/outputs/apk/release/app-release.apk
+          BT="${ANDROID_HOME}/build-tools/34.0.0"
+          "$BT/apksigner" verify --print-certs "$APK"
+          "$BT/apksigner" verify "$APK"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
